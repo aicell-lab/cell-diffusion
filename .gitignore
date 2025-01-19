@@ -22,7 +22,7 @@ wheels/
 
 # Jupyter Notebook
 .ipynb_checkpoints
-*.ipynb
+# *.ipynb
 
 # Virtual Environment
 venv/
@@ -75,3 +75,7 @@ htmlcov/
 .env.*
 credentials.json
 config.json
+
+
+# personal
+notes
