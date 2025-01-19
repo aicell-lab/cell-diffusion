@@ -39,8 +39,8 @@ ENV/
 .DS_Store
 
 # ML specific
-data/
-models/
+/data/
+/models/
 *.h5
 *.pkl
 *.pth
