@@ -16,3 +16,4 @@ dependencies:
   - pip:
       - quilt3
       - tifffile
+      - einops
