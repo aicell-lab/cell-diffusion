@@ -13,6 +13,7 @@ dependencies:
   - numpy
   - pandas
   - matplotlib
+  - webdataset
   - pip:
       - quilt3
       - tifffile
