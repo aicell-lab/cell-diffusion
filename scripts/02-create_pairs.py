@@ -1,8 +1,8 @@
 """
 Usage:
-    python create_pairs.py [<chemical_annotations_csv>]
+    python 02-create_pairs.py <plate_id>
 Example:
-    python create_pairs.py chemical_annotations.csv
+    python 02-create_pairs.py 24277
 """
 
 import os
@@ -15,30 +15,34 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 # Input/Output paths
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 BARCODE_CSV = os.path.join(DATA_DIR, "barcode_platemap.csv")
-DEFAULT_CHEM_ANNOT = os.path.join(DATA_DIR, "chemical_annotations.csv")
-OUTPUT_CSV = os.path.join(DATA_DIR, "pairs.csv")
+CHEM_ANNOT_CSV = os.path.join(DATA_DIR, "chemical_annotations.csv")
 
 
 def build_abs_path(filename, plate):
-    return os.path.join(DATA_DIR, str(plate), filename)
+    """Build path to image file in the images subdirectory"""
+    return os.path.join(DATA_DIR, str(plate), "images", filename)
 
 
-def process_plate(plate_id, load_data_csv, df_barcode, df_chem):
+def process_plate(plate_id, df_barcode, df_chem):
+    plate_dir = os.path.join(DATA_DIR, str(plate_id))
+    load_data_csv = os.path.join(plate_dir, "load_data.csv")
+    if not os.path.exists(load_data_csv):
+        print(f"Error: load_data.csv not found for plate {plate_id}")
+        return None
+
     print(f"Processing plate_id={plate_id}, file={load_data_csv}")
 
     # Find matching platemap
     row = df_barcode.loc[df_barcode["plate_id"] == plate_id]
     if row.empty:
-        print(
-            f"Warning: No row in barcode_platemap.csv for plate {plate_id}. Skipping."
-        )
+        print(f"Error: No row in barcode_platemap.csv for plate {plate_id}.")
         return None
 
     platemap_name = row["Plate_Map_Name"].iloc[0]
-    platemap_file = os.path.join(DATA_DIR, f"{platemap_name}.txt")
+    platemap_file = os.path.join(plate_dir, f"{platemap_name}.txt")
 
     if not os.path.exists(platemap_file):
-        print(f"Warning: Platemap file {platemap_file} not found. Skipping.")
+        print(f"Error: Platemap file {platemap_file} not found.")
         return None
 
     # Read the load_data.csv
@@ -94,43 +98,33 @@ def process_plate(plate_id, load_data_csv, df_barcode, df_chem):
 
 
 def main():
-    # Parse command line arguments
-    chem_annot_csv = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_CHEM_ANNOT
+    if len(sys.argv) < 2:
+        print("Usage: create_pairs.py <plate_id>")
+        sys.exit(1)
 
-    if not os.path.exists(chem_annot_csv):
-        print(f"Error: Chemical annotations file {chem_annot_csv} not found.")
+    plate_id = sys.argv[1]
+
+    if not os.path.exists(CHEM_ANNOT_CSV):
+        print(f"Error: Chemical annotations file {CHEM_ANNOT_CSV} not found.")
         sys.exit(1)
 
     # Read input files
-    df_chem = pd.read_csv(chem_annot_csv)
+    df_chem = pd.read_csv(CHEM_ANNOT_CSV)
     df_barcode = pd.read_csv(BARCODE_CSV)
     df_barcode["plate_id"] = (
         df_barcode["Assay_Plate_Barcode"].astype(str).str.replace(",", "")
     )
 
-    # Process all load_data files
-    all_dfs = []
-    for fname in os.listdir(DATA_DIR):
-        if not fname.startswith("load_data_") or not fname.endswith(".csv"):
-            continue
+    # Process single plate
+    df_plate = process_plate(plate_id, df_barcode, df_chem)
+    if df_plate is None:
+        print("Failed to process plate. Exiting.")
+        sys.exit(1)
 
-        plate_id = fname.replace("load_data_", "").replace(".csv", "")
-        load_data_csv = os.path.join(DATA_DIR, fname)
-
-        df_plate = process_plate(plate_id, load_data_csv, df_barcode, df_chem)
-        if df_plate is not None:
-            all_dfs.append(df_plate)
-
-    if not all_dfs:
-        print("No plates processed. Exiting.")
-        return
-
-    # Merge and save results
-    df_final = pd.concat(all_dfs, ignore_index=True)
-    print(f"Merged total rows: {len(df_final)}")
-
-    df_final.to_csv(OUTPUT_CSV, index=False)
-    print(f"Wrote {OUTPUT_CSV} with {len(df_final)} rows.")
+    # Save plate-specific pairs file
+    output_csv = os.path.join(DATA_DIR, str(plate_id), f"pairs_{plate_id}.csv")
+    df_plate.to_csv(output_csv, index=False)
+    print(f"Wrote {output_csv} with {len(df_plate)} rows.")
 
 
 if __name__ == "__main__":

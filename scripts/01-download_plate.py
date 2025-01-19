@@ -51,20 +51,19 @@ def main():
 
     plate_image_path = f"{IMAGES_PATH}/{plate_id}/"
     local_plate_dir = os.path.join(LOCAL_OUT_DIR, plate_id)
-    if not local_plate_dir.endswith("/"):
-        local_plate_dir += "/"
-    print(f"Downloading images from {plate_image_path} to {local_plate_dir} ...")
-    bucket.fetch(plate_image_path, local_plate_dir)
+    local_plate_dir_images = os.path.join(local_plate_dir, "images") + "/"
+    print(f"Downloading images from {plate_image_path} to {local_plate_dir_images} ...")
+    bucket.fetch(plate_image_path, local_plate_dir_images)
 
     platemap_file_remote = f"{PLATEMAP_SUBFOLDER}/{platemap_name}.txt"
-    platemap_file_local = os.path.join(LOCAL_OUT_DIR, f"{platemap_name}.txt")
+    platemap_file_local = os.path.join(local_plate_dir, f"{platemap_name}.txt")
     print(
         f"Downloading platemap from {platemap_file_remote} to {platemap_file_local} ..."
     )
     bucket.fetch(platemap_file_remote, platemap_file_local)
 
     load_data_remote = f"{LOAD_DATA_BASE}/{plate_id}/load_data.csv"
-    load_data_local = os.path.join(LOCAL_OUT_DIR, f"load_data_{plate_id}.csv")
+    load_data_local = os.path.join(local_plate_dir, "load_data.csv")
     print(
         f"Attempting to download load_data.csv from {load_data_remote} to {load_data_local} ..."
     )
