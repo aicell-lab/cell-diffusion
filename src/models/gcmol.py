@@ -6,27 +6,26 @@ The core GNN-based molecular encoding functionality has been preserved, while re
 unnecessary components like image encoding and other auxiliary functions.
 """
 
-import os
 import json
+import os
+
 import torch
 import torch.nn as nn
-import numpy as np
-
 from dgl import batch
+from dgllife.model.gnn.wln import WLN
+from dgllife.model.readout.mlp_readout import MLPNodeReadout
 from dgllife.utils import (
-    smiles_to_bigraph,
     BaseAtomFeaturizer,
     CanonicalBondFeaturizer,
     ConcatFeaturizer,
-    atom_type_one_hot,
+    atom_chiral_tag_one_hot,
     atom_formal_charge,
     atom_hybridization_one_hot,
-    atom_chiral_tag_one_hot,
-    atom_is_in_ring,
     atom_is_aromatic,
+    atom_is_in_ring,
+    atom_type_one_hot,
+    smiles_to_bigraph,
 )
-from dgllife.model.gnn.wln import WLN
-from dgllife.model.readout.mlp_readout import MLPNodeReadout
 
 
 class MolecularEncoder(nn.Module):

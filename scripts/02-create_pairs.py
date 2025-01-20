@@ -7,6 +7,7 @@ Example:
 
 import os
 import sys
+
 import pandas as pd
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))

@@ -6,14 +6,14 @@ Creates a WebDataset from the pairs.csv file, with train/val/test splits.
 Each sample contains a 5-channel image stack and metadata about the compound.
 """
 
-import os
 import argparse
+import os
+
 import numpy as np
 import pandas as pd
 import tifffile
 import webdataset as wds
 from tqdm import tqdm
-
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
@@ -127,7 +127,6 @@ def main():
     n_total = len(df)
     n_train = int(n_total * args.train_frac)
     n_val = int(n_total * args.val_frac)
-    n_test = n_total - n_train - n_val
 
     # Split data
     df_train = df[:n_train]

@@ -6,8 +6,8 @@ Example:
 """
 
 import os
+
 import pandas as pd
-import glob
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)

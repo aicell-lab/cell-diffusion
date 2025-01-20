@@ -6,6 +6,7 @@ channels:
 
 dependencies:
   - python=3.10
+  - ipykernel
   - pytorch
   - torchvision
   - torchaudio
@@ -22,3 +23,5 @@ dependencies:
       - tifffile
       - einops
       - rdkit
+      - black
+      - ruff

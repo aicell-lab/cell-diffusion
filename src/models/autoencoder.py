@@ -1,16 +1,11 @@
 # this file is a modified version of the original file from https://github.com/CompVis/latent-diffusion
-
 import importlib
-import torch
-import torch.nn as nn
-from typing import Optional, List
-
-
-# pytorch_diffusion + derived encoder decoder
 import math
+from typing import Optional
+
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
 from einops import rearrange
 
 
@@ -23,13 +18,13 @@ def get_obj_from_str(string, reload=False):
 
 
 def instantiate_from_config(config):
-    if not "target" in config:
+    if "target" not in config:
         if config == "__is_first_stage__":
             return None
         elif config == "__is_unconditional__":
             return None
         raise KeyError("Expected key `target` to instantiate.")
-    return get_obj_from_str(config["target"])(**config.get("params", dict()))
+    return get_obj_from_str(config["target"])(**config.get("params", {}))
 
 
 class LinearAttention(nn.Module):
@@ -93,7 +88,9 @@ class DiagonalGaussianDistribution(object):
                     dim=[1, 2, 3],
                 )
 
-    def nll(self, sample, dims=[1, 2, 3]):
+    def nll(self, sample, dims=None):
+        if dims is None:
+            dims = [1, 2, 3]
         if self.deterministic:
             return torch.Tensor([0.0])
         logtwopi = np.log(2.0 * np.pi)
@@ -349,7 +346,7 @@ class Model(nn.Module):
             attn = nn.ModuleList()
             block_in = ch * in_ch_mult[i_level]
             block_out = ch * ch_mult[i_level]
-            for i_block in range(self.num_res_blocks):
+            for _ in range(self.num_res_blocks):
                 block.append(
                     ResnetBlock(
                         in_channels=block_in,
@@ -518,7 +515,7 @@ class Encoder(nn.Module):
             attn = nn.ModuleList()
             block_in = ch * in_ch_mult[i_level]
             block_out = ch * ch_mult[i_level]
-            for i_block in range(self.num_res_blocks):
+            for _ in range(self.num_res_blocks):
                 block.append(
                     ResnetBlock(
                         in_channels=block_in,
@@ -625,7 +622,6 @@ class Decoder(nn.Module):
         self.tanh_out = tanh_out
 
         # compute in_ch_mult, block_in and curr_res at lowest res
-        in_ch_mult = (1,) + tuple(ch_mult)
         block_in = ch * ch_mult[self.num_resolutions - 1]
         curr_res = resolution // 2 ** (self.num_resolutions - 1)
         self.z_shape = (1, z_channels, curr_res, curr_res)
@@ -663,7 +659,7 @@ class Decoder(nn.Module):
             block = nn.ModuleList()
             attn = nn.ModuleList()
             block_out = ch * ch_mult[i_level]
-            for i_block in range(self.num_res_blocks + 1):
+            for _ in range(self.num_res_blocks + 1):
                 block.append(
                     ResnetBlock(
                         in_channels=block_in,
@@ -798,7 +794,7 @@ class UpsampleDecoder(nn.Module):
         for i_level in range(self.num_resolutions):
             res_block = []
             block_out = ch * ch_mult[i_level]
-            for i_block in range(self.num_res_blocks + 1):
+            for _ in range(self.num_res_blocks + 1):
                 res_block.append(
                     ResnetBlock(
                         in_channels=block_in,
@@ -1119,7 +1115,7 @@ class BasicAutoencoderKL(nn.Module):
         lossconfig,
         embed_dim,
         ckpt_path=None,
-        ignore_keys=[],
+        ignore_keys=None,
     ):
         """
         Minimal version for inference. The submodules (Encoder, Decoder, etc.)

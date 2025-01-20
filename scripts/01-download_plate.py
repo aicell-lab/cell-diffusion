@@ -5,8 +5,9 @@ Example:
     python download_plate.py 24277 barcode_platemap.csv .
 """
 
-import sys
 import os
+import sys
+
 import pandas as pd
 import quilt3 as q3
 

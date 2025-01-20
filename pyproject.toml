@@ -1,0 +1,28 @@
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 88
+target-version = "py38"
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors
+    "W",  # pycodestyle warnings
+    "F",  # pyflakes
+    "I",  # isort
+    "C",  # flake8-comprehensions
+    "B",  # flake8-bugbear
+]
+ignore = [
+    "PLR0913",  # too many arguments
+    "C901",     # too complex
+    "E501",     # line too long
+    "B006",     # mutable-argument-default
+    "B023",     # function definition does not bind loop variable
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"] 
