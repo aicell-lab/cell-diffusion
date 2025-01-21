@@ -81,3 +81,4 @@ config.json
 # personal
 notes
 color_diffusion_checkpoints/
+color_diffusion_cond_checkpoints/
