@@ -40,7 +40,7 @@ ENV/
 .DS_Store
 
 # ML specific
-/data/
+/datasets/
 /models/
 *.h5
 *.pkl
@@ -80,3 +80,4 @@ config.json
 
 # personal
 notes
+color_diffusion_checkpoints/

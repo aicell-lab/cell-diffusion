@@ -11,6 +11,7 @@ dependencies:
   - torchvision
   - torchaudio
   - diffusers
+  - transformers
   - numpy
   - pandas
   - matplotlib
@@ -18,6 +19,7 @@ dependencies:
   - scikit-learn
   - dgl
   - dgllife
+  - wandb
   - pip:
       - quilt3
       - tifffile
@@ -25,3 +27,4 @@ dependencies:
       - rdkit
       - black
       - ruff
+      - accelerate
