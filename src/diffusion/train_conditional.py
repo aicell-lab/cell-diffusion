@@ -2,54 +2,43 @@ import os
 import glob
 import random
 import torch
+import torch.optim as optim
+import torch.nn.functional as F
 import wandb
 
-from torch import nn
+
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from torchvision import transforms
 from torchvision.utils import make_grid
 from torchvision.transforms.functional import to_pil_image
 
-from diffusers.models.unets.unet_2d_condition import UNet2DConditionModel
-from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
-from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
+from diffusers import (
+    UNet2DConditionModel,
+    DDPMScheduler,
+    AutoencoderKL,
+)
 
-import torch.optim as optim
-import torch.nn.functional as F
 
-
-class ColorLabelDataset(Dataset):
-    """
-    Directory structure example:
-        datasets/colors/train/
-            red/*.png
-            blue/*.png
-            ...
-        datasets/colors/val/
-            red/*.png
-            blue/*.png
-            ...
-    We map each folder name (e.g. "red") to an integer label ID,
-    and store that in self.label_to_id and self.id_to_label.
-    """
-
+class ColorOneHotDataset(Dataset):
     def __init__(self, root, color_to_id, image_size=256):
         self.root = root
-        self.color_to_id = color_to_id  # dict like {"black":0, "blue":1, ...}
+        self.color_to_id = color_to_id
+        self.num_colors = len(color_to_id)
+
         self.image_paths = []
         self.labels = []
 
-        # Each subfolder is a color name
         for color_folder in sorted(os.listdir(root)):
             subdir = os.path.join(root, color_folder)
             if not os.path.isdir(subdir):
                 continue
-            label_id = color_to_id[color_folder]
+            color_id = color_to_id[color_folder]
             image_files = sorted(glob.glob(os.path.join(subdir, "*")))
+
             for img_path in image_files:
                 self.image_paths.append(img_path)
-                self.labels.append(label_id)
+                self.labels.append(color_id)
 
         self.transform = transforms.Compose(
             [
@@ -64,124 +53,96 @@ class ColorLabelDataset(Dataset):
 
     def __getitem__(self, idx):
         img_path = self.image_paths[idx]
-        label_id = self.labels[idx]
+        color_id = self.labels[idx]
+        one_hot_vec = torch.zeros(self.num_colors)
+        one_hot_vec[color_id] = 1.0
 
         img = Image.open(img_path).convert("RGB")
         img = self.transform(img)
-        return img, label_id
+        return img, one_hot_vec
 
 
-class LabelEmbedding(nn.Module):
+def create_small_unet(num_colors):
     """
-    A simple embedding layer for color labels.
-    We produce shape [batch_size, 1, embed_dim] for cross-attention.
+    A smaller U-Net with cross-attention in all blocks, for CFG + one-hot.
     """
+    model = UNet2DConditionModel(
+        sample_size=64,
+        in_channels=4,
+        out_channels=4,
+        down_block_types=(
+            "CrossAttnDownBlock2D",
+            "CrossAttnDownBlock2D",
+        ),
+        mid_block_type="UNetMidBlock2DCrossAttn",
+        up_block_types=(
+            "CrossAttnUpBlock2D",
+            "CrossAttnUpBlock2D",
+        ),
+        block_out_channels=(128, 256),
+        layers_per_block=2,
+        cross_attention_dim=num_colors,  # same as number of classes for one-hot
+    )
+    return model
 
-    def __init__(self, num_labels, embed_dim=64):
-        super().__init__()
-        self.embedding = nn.Embedding(num_labels, embed_dim)
 
-    def forward(self, label_ids):
-        # label_ids: shape [batch_size]
-        # output: [batch_size, 1, embed_dim]
-        embeds = self.embedding(label_ids)  # [batch_size, embed_dim]
-        embeds = embeds.unsqueeze(1)  # add seq_len=1 dimension
-        return embeds
-
-
-def sample_images(
-    unet,
-    vae,
-    scheduler,
-    label_embedder,
-    device,
-    label_id=0,
-    embed_dim=64,
-    num_samples=4,
-    num_inference_steps=50,
-):
+def validate_one_epoch(unet, vae, scheduler, val_loader, device, cfg_prob=0.0):
     """
-    Generate images using a particular color label_id.
+    We do a single pass noise-prediction with random label dropout (cfg_prob).
     """
     unet.eval()
-    label_embedder.eval()
-
-    with torch.no_grad():
-        # Create repeated label IDs for all samples
-        label_ids = torch.tensor([label_id] * num_samples, device=device)
-
-        # Convert label IDs to embedding
-        cond_emb = label_embedder(label_ids)  # shape [num_samples, 1, embed_dim]
-
-        # Start from random noise in latent space
-        latents = torch.randn((num_samples, 4, 64, 64), device=device)
-        scheduler.set_timesteps(num_inference_steps)
-
-        for t in scheduler.timesteps:
-            model_out = unet(latents, t, encoder_hidden_states=cond_emb).sample
-            latents = scheduler.step(model_out, t, latents).prev_sample
-
-        images = vae.decode(latents / 0.18215).sample
-
-    images = (images * 0.5 + 0.5).clamp(0, 1)
-    unet.train()
-    label_embedder.train()
-    return images
-
-
-def validate_one_epoch(unet, vae, scheduler, label_embedder, val_loader, device):
-    """
-    Basic validation loop computing average MSE noise prediction loss.
-    """
-    unet.eval()
-    label_embedder.eval()
     total_loss = 0.0
     total_steps = 0
 
     with torch.no_grad():
-        for images, label_ids in val_loader:
+        for images, one_hot_vec in val_loader:
             images = images.to(device)
-            label_ids = label_ids.to(device)
+            one_hot_vec = one_hot_vec.to(device)
+
             latents = vae.encode(images).latent_dist.sample() * 0.18215
+            batch_size = latents.shape[0]
 
-            cond_emb = label_embedder(label_ids)  # [bs, 1, embed_dim]
+            # Possibly drop label => unconditional
+            for i in range(batch_size):
+                if random.random() < cfg_prob:
+                    one_hot_vec[i] = 0.0
 
-            bsz = latents.shape[0]
+            # [batch_size, 1, num_colors]
+            cond_emb = one_hot_vec.unsqueeze(1)
+
             timesteps = torch.randint(
-                0, scheduler.num_train_timesteps, (bsz,), device=device
+                0, scheduler.num_train_timesteps, (batch_size,), device=device
             ).long()
             noise = torch.randn_like(latents)
             noisy_latents = scheduler.add_noise(latents, noise, timesteps)
 
-            model_out = unet(noisy_latents, timesteps, encoder_hidden_states=cond_emb)
-            pred = model_out.sample
+            model_out = unet(
+                noisy_latents, timesteps, encoder_hidden_states=cond_emb
+            ).sample
+            loss = F.mse_loss(model_out, noise)
 
-            loss = F.mse_loss(pred, noise)
             total_loss += loss.item()
             total_steps += 1
 
     unet.train()
-    label_embedder.train()
     return total_loss / max(1, total_steps)
 
 
-def train_conditional_simple(
-    data_root="datasets/colors",  # expects train/ and val/
-    output_dir="color_diffusion_cond_checkpoints",
-    epochs=20,
+def train_conditional_one_hot_cfg(
+    data_root="datasets/colors",
+    output_dir="color_diffusion_cond_checkpoints_one_hot_cfg",
+    epochs=10,
     batch_size=4,
     lr=1e-4,
-    embed_dim=64,
+    cfg_prob=0.1,  # fraction of label-drop in training
+    val_cfg_prob=0.0,  # label-drop in validation
+    guidance_scale=7.5,  # used for sampling
 ):
-    """
-    A simpler label-based approach:
-    - We discover color folders in 'train' to build color->id mapping.
-    - We embed that ID into a small learned vector for cross-attention.
-    - We do a standard diffusion training loop with MSE loss on noise prediction.
-    """
+    wandb.init(
+        project="diffusion", entity="aicellio", name="color-diffusion-one-hot-cfg"
+    )
 
-    wandb.init(project="diffusion", entity="aicellio", name="color-diffusion-simple")
-
+    # Device
     if torch.cuda.is_available():
         device = torch.device("cuda")
     elif torch.backends.mps.is_available():
@@ -195,7 +156,7 @@ def train_conditional_simple(
     train_dir = os.path.join(data_root, "train")
     val_dir = os.path.join(data_root, "val")
 
-    # 1) Build color->id mapping from train subfolders
+    # Build color->id mapping from train folders
     color_folders = [
         d
         for d in sorted(os.listdir(train_dir))
@@ -203,10 +164,9 @@ def train_conditional_simple(
     ]
     color_to_id = {c: i for i, c in enumerate(color_folders)}
     id_to_color = {i: c for c, i in color_to_id.items()}
-    num_colors = len(color_folders)
-    print(f"Color -> ID mapping: {color_to_id}")
+    num_colors = len(color_to_id)
+    print(f"color_to_id: {color_to_id}")
 
-    # 2) Load VAE
     vae = AutoencoderKL.from_pretrained(
         "CompVis/stable-diffusion-v1-4", subfolder="vae"
     ).to(device)
@@ -214,28 +174,11 @@ def train_conditional_simple(
     for p in vae.parameters():
         p.requires_grad_(False)
 
-    # 3) Create UNet2DConditionModel with cross_attention_dim=embed_dim
-    unet = UNet2DConditionModel(
-        sample_size=64,
-        in_channels=4,
-        out_channels=4,
-        cross_attention_dim=embed_dim,
-        layers_per_block=2,
-        # e.g. block_out_channels=(320, 640, 640, 1280),
-        # or leave defaults if you want a smaller model
-    ).to(device)
-
-    # 4) Create a small embedding layer for color labels
-    label_embedder = LabelEmbedding(num_labels=num_colors, embed_dim=embed_dim).to(
-        device
-    )
-
-    # 5) Scheduler
+    unet = create_small_unet(num_colors).to(device)
     scheduler = DDPMScheduler(num_train_timesteps=1000)
 
-    # 6) Datasets & Dataloaders
-    train_dataset = ColorLabelDataset(train_dir, color_to_id)
-    val_dataset = ColorLabelDataset(val_dir, color_to_id)
+    train_dataset = ColorOneHotDataset(train_dir, color_to_id)
+    val_dataset = ColorOneHotDataset(val_dir, color_to_id)
     train_loader = DataLoader(
         train_dataset, batch_size=batch_size, shuffle=True, drop_last=True
     )
@@ -243,26 +186,27 @@ def train_conditional_simple(
         val_dataset, batch_size=batch_size, shuffle=False, drop_last=True
     )
 
-    # 7) Optimizer (includes UNet + label_embedder)
-    optimizer = optim.AdamW(
-        list(unet.parameters()) + list(label_embedder.parameters()), lr=lr
-    )
+    optimizer = optim.AdamW(unet.parameters(), lr=lr)
 
     global_step = 0
 
     for epoch in range(epochs):
         unet.train()
-        label_embedder.train()
-
-        for step, (images, label_ids) in enumerate(train_loader):
+        for step, (images, one_hot_vec) in enumerate(train_loader):
             images = images.to(device)
-            label_ids = label_ids.to(device)
+            one_hot_vec = one_hot_vec.to(device)
 
             with torch.no_grad():
                 latents = vae.encode(images).latent_dist.sample() * 0.18215
 
-            # Convert label IDs to embeddings
-            cond_emb = label_embedder(label_ids)  # shape [bs, 1, embed_dim]
+            # Classifier-Free Guidance (training):
+            # randomly drop label => unconditional
+            for i in range(latents.shape[0]):
+                if random.random() < cfg_prob:
+                    one_hot_vec[i] = 0.0
+
+            # shape [batch_size, 1, num_colors]
+            cond_emb = one_hot_vec.unsqueeze(1)
 
             bsz = latents.shape[0]
             timesteps = torch.randint(
@@ -288,27 +232,26 @@ def train_conditional_simple(
 
         # Validation
         val_loss = validate_one_epoch(
-            unet, vae, scheduler, label_embedder, val_loader, device
+            unet, vae, scheduler, val_loader, device, cfg_prob=val_cfg_prob
         )
         wandb.log({"val/loss": val_loss, "epoch": epoch})
-        print(f"Epoch {epoch} | Validation Loss: {val_loss:.4f}")
+        print(f"Epoch {epoch} | val_loss: {val_loss:.4f}")
 
-        # Sample images from a random color
+        # Sample images with CFG
         random_label_id = random.randint(0, num_colors - 1)
-        sampled_imgs = sample_images(
+        random_color = id_to_color[random_label_id]
+        images = sample_one_hot_cfg(
             unet,
             vae,
             scheduler,
-            label_embedder,
-            device,
             label_id=random_label_id,
-            embed_dim=embed_dim,
+            guidance_scale=guidance_scale,
             num_samples=4,
             num_inference_steps=30,
+            device=device,
         )
-        grid = make_grid(sampled_imgs, nrow=2)
+        grid = make_grid(images, nrow=2)
         grid_pil = to_pil_image(grid)
-        color_name = id_to_color[random_label_id]
 
         grid_path = os.path.join(output_dir, f"samples_epoch_{epoch}.png")
         grid_pil.save(grid_path)
@@ -317,22 +260,70 @@ def train_conditional_simple(
             {
                 "epoch": epoch,
                 "sample_images": wandb.Image(
-                    grid_pil, caption=f"Epoch {epoch} - Color: {color_name}"
+                    grid_pil, caption=f"Epoch {epoch} - {random_color}"
                 ),
             }
         )
 
         # Save checkpoint
         ckpt_path = os.path.join(output_dir, f"unet_epoch_{epoch}.pt")
-        torch.save(
-            {
-                "unet": unet.state_dict(),
-                "label_embedder": label_embedder.state_dict(),
-            },
-            ckpt_path,
-        )
+        torch.save(unet.state_dict(), ckpt_path)
         print(f"Saved checkpoint to {ckpt_path}")
 
 
+# ---------------------------
+# CFG Sampling
+# ---------------------------
+def sample_one_hot_cfg(
+    unet,
+    vae,
+    scheduler,
+    label_id,
+    guidance_scale=7.5,
+    num_samples=4,
+    num_inference_steps=50,
+    device="cuda",
+):
+    """
+    Classifier-Free Guidance at inference:
+      1) uncond_out = unet(noisy_latents, t, zero_vector)
+      2) cond_out   = unet(noisy_latents, t, one_hot_vector)
+      3) final_out  = uncond_out + scale * (cond_out - uncond_out)
+    """
+    unet.eval()
+    with torch.no_grad():
+        # Prepare unconditional (empty) and conditional (one-hot) embeddings
+        num_colors = unet.config.cross_attention_dim
+        # cond: shape [num_samples, num_colors]
+        cond = torch.zeros(num_samples, num_colors, device=device)
+        cond[range(num_samples), label_id] = 1.0
+        cond = cond.unsqueeze(1)  # [bs, 1, num_colors]
+
+        # uncond: all zeros
+        uncond = torch.zeros_like(cond)
+
+        latents = torch.randn((num_samples, 4, 64, 64), device=device)
+        scheduler.set_timesteps(num_inference_steps)
+
+        for t in scheduler.timesteps:
+            # 1) Unconditional pass
+            uncond_out = unet(latents, t, encoder_hidden_states=uncond).sample
+            # 2) Conditional pass
+            cond_out = unet(latents, t, encoder_hidden_states=cond).sample
+
+            # 3) Combine
+            cfg_out = uncond_out + guidance_scale * (cond_out - uncond_out)
+
+            latents = scheduler.step(cfg_out, t, latents).prev_sample
+
+        images = vae.decode(latents / 0.18215).sample
+
+    images = (images * 0.5 + 0.5).clamp(0, 1)
+    return images
+
+
+# ---------------------------
+# Main
+# ---------------------------
 if __name__ == "__main__":
-    train_conditional_simple()
+    train_conditional_one_hot_cfg()
