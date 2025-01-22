@@ -20,7 +20,7 @@ dependencies:
   - matplotlib
   - webdataset
   - scikit-learn
-  - dgl-cuda
+  - dgl
   - dgllife
   - wandb
   - pip:
