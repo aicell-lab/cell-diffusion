@@ -1,0 +1,32 @@
+name: cell-diffusion-env-cuda
+channels:
+  - conda-forge
+  - pytorch
+  - nvidia
+  - defaults
+
+dependencies:
+  - python=3.10
+  - ipykernel
+  - pytorch-cuda
+  - pytorch
+  - torchvision
+  - torchaudio
+  - cudatoolkit
+  - diffusers
+  - transformers
+  - numpy
+  - pandas
+  - matplotlib
+  - webdataset
+  - scikit-learn
+  - dgl-cuda
+  - dgllife
+  - wandb
+  - pip:
+      - quilt3
+      - tifffile
+      - einops
+      - rdkit
+      - black
+      - accelerate

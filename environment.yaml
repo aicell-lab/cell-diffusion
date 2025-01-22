@@ -26,5 +26,4 @@ dependencies:
       - einops
       - rdkit
       - black
-      - ruff
       - accelerate
