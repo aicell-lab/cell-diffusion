@@ -157,9 +157,10 @@ def train_unconditional_imagenet(
             }
         )
 
-        torch.save(
-            unet.state_dict(), os.path.join(output_dir, f"unet_epoch_{epoch}.pt")
-        )
+        if epoch % 2 == 0:
+            torch.save(
+                unet.state_dict(), os.path.join(output_dir, f"unet_epoch_{epoch}.pt")
+            )
 
 
 if __name__ == "__main__":
