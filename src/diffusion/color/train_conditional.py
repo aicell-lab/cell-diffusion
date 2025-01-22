@@ -129,9 +129,9 @@ def validate_one_epoch(unet, vae, scheduler, val_loader, device, cfg_prob=0.0):
 
 
 def train_conditional_one_hot_cfg(
-    data_root="datasets/colors",
+    data_root="datasets/colors_rgb",
     output_dir="color_diffusion_cond_checkpoints_one_hot_cfg",
-    epochs=10,
+    epochs=25,
     batch_size=4,
     lr=1e-4,
     cfg_prob=0.1,  # fraction of label-drop in training
@@ -266,9 +266,10 @@ def train_conditional_one_hot_cfg(
         )
 
         # Save checkpoint
-        ckpt_path = os.path.join(output_dir, f"unet_epoch_{epoch}.pt")
-        torch.save(unet.state_dict(), ckpt_path)
-        print(f"Saved checkpoint to {ckpt_path}")
+        if epoch % 5 == 0:
+            ckpt_path = os.path.join(output_dir, f"unet_epoch_{epoch}.pt")
+            torch.save(unet.state_dict(), ckpt_path)
+            print(f"Saved checkpoint to {ckpt_path}")
 
 
 # ---------------------------
