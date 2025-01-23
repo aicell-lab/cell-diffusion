@@ -96,9 +96,9 @@ def train_unconditional_imagenet(
         in_channels=4,
         out_channels=4,
         layers_per_block=2,
-        block_out_channels=(320, 640, 640, 1280),
-        down_block_types=("DownBlock2D", "DownBlock2D", "DownBlock2D", "DownBlock2D"),
-        up_block_types=("UpBlock2D", "UpBlock2D", "UpBlock2D", "UpBlock2D"),
+        block_out_channels=(128, 256),
+        down_block_types=("DownBlock2D", "DownBlock2D"),
+        up_block_types=("UpBlock2D", "UpBlock2D"),
     ).to(device)
 
     scheduler = DDPMScheduler(num_train_timesteps=1000)
