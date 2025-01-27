@@ -23,6 +23,7 @@ dependencies:
   - dgl
   - dgllife
   - wandb
+  - plotly
   - pip:
       - quilt3
       - tifffile
@@ -30,3 +31,4 @@ dependencies:
       - rdkit
       - black
       - accelerate
+      - umap-learn

@@ -75,7 +75,7 @@ def compute_val_loss(unet, vae, scheduler, val_loader, device):
 
 def train_unconditional_imagenet(
     data_root="datasets/imagenet/train.X1",
-    val_root=None,
+    val_root="datasets/imagenet/val.X",
     output_dir="imagenet_uncond_checkpoints",
     epochs=10,
     batch_size=16,
@@ -181,8 +181,7 @@ def train_unconditional_imagenet(
             wandb.log({"train/loss": loss.item()}, step=global_step)
             global_step += 1
 
-            # Print every 50 steps
-            if step % 50 == 0:
+            if step % 100 == 0:
                 print(
                     f"Epoch {epoch} | Step {step} | Loss {loss.item():.4f} | Global Step {global_step}"
                 )
